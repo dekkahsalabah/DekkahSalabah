@@ -773,9 +773,9 @@ select.inp option{ background:var(--s2) }
         <div class="sep"></div>
         <div style="font-size:12px;color:var(--muted);margin-bottom:10px;font-weight:700">وضع العرض</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px" id="mode-btns">
-          <button class="btno" id="btn-mode-dark" onclick="applyMode('dark')"
+          <button class="btno" id="btn-mode-dark"
             style="font-size:12px;display:flex;align-items:center;justify-content:center;gap:6px">🌙 داكن</button>
-          <button class="btno" id="btn-mode-light" onclick="applyMode('light')"
+          <button class="btno" id="btn-mode-light"
             style="font-size:12px;display:flex;align-items:center;justify-content:center;gap:6px">☀️ فاتح</button>
         </div>
       </div>
@@ -2276,10 +2276,144 @@ function loadReports() {
     }).join('');
   var top=all.filter(function(p){ return p.finalPrice; }).sort(function(a,b){ return b.finalPrice-a.finalPrice; }).slice(0,5);
   document.getElementById('rp-top').innerHTML=top.map(function(p,i){
-    return '<div class="pc" style="cursor:default"><div class="pch"><div><div class="pcn">'+(i+1)+'. '+escH(p.name)+'</div>'+
-      '<div class="pcm">ربح '+(p.profit||0)+'% | '+(STATUS[p.status]?STATUS[p.status].icon+' '+STATUS[p.status].label:p.status)+'</div></div>'+
-      '<div><div class="pcp">'+fmt(p.finalPrice)+'</div><div class="pcs">ريال</div></div></div></div>';
+    var pPurs = ALL_PURCHASES.filter(function(pur){ return pur.projId===p.id; }).reduce(function(s,pur){ return s+pur.total; },0);
+    var over = pPurs > (p.cost||0) && (p.cost||0)>0;
+    return '<div class="pc" data-report-proj="'+p.id+'">' +
+      '<div class="pch"><div><div class="pcn">'+(i+1)+'. '+escH(p.name)+'</div>'+
+      '<div class="pcm">ربح '+(p.profit||0)+'% | '+(STATUS[p.status]?STATUS[p.status].icon+' '+STATUS[p.status].label:p.status)+
+      (pPurs>0?' | 🛒 مصروف: '+fmt(pPurs)+' ﷼':'')+
+      (over?' ⚠️':'')+'</div></div>'+
+      '<div><div class="pcp">'+fmt(p.finalPrice)+'</div><div class="pcs">ريال</div></div></div>'+
+      '<div style="margin-top:6px"><button class="btno" style="width:100%;font-size:11px" data-action="openDetailedReport" data-projid="'+p.id+'">📊 تقرير تفصيلي</button></div>'+
+    '</div>';
   }).join('');
+
+  // All projects report button
+  var rpAllEl = document.getElementById('rp-all-btn');
+  if(!rpAllEl) {
+    var allBtn = document.createElement('div');
+    allBtn.style.cssText = 'margin-bottom:12px';
+    allBtn.innerHTML = '<button class="btng" id="rp-all-btn" style="font-size:12px" data-action="openAllProjectsReport">📋 تقرير شامل لجميع المشاريع</button>';
+    var rpTopEl = document.getElementById('rp-top');
+    if(rpTopEl && rpTopEl.parentNode) rpTopEl.parentNode.insertBefore(allBtn, rpTopEl);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// DETAILED REPORTS
+// ═══════════════════════════════════════════════════════
+function openDetailedReport(projId) {
+  var proj = null;
+  for(var i=0;i<ALL_PROJECTS.length;i++){ if(ALL_PROJECTS[i].id===projId){ proj=ALL_PROJECTS[i]; break; } }
+  if(!proj) return;
+
+  var purs = ALL_PURCHASES.filter(function(p){ return p.projId===projId; });
+  var purTotal = purs.reduce(function(s,p){ return s+p.total; },0);
+  var remaining = (proj.cost||0) - purTotal;
+  var over = purTotal > (proj.cost||0) && (proj.cost||0) > 0;
+  var pct = proj.cost>0 ? Math.min((purTotal/proj.cost*100),100).toFixed(1) : 0;
+
+  var html = '<div style="font-size:13px;font-weight:900;color:var(--gold2);margin-bottom:12px">'+escH(proj.name)+'</div>';
+
+  // Summary cards
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">';
+  html += '<div style="background:var(--s2);padding:10px;border-radius:9px;text-align:center"><div style="font-size:9px;color:var(--muted)">الميزانية المخططة</div><div style="font-size:15px;font-weight:900;color:var(--steel)">'+fmt(proj.cost||0)+' ﷼</div></div>';
+  html += '<div style="background:rgba(200,146,10,.08);border:1px solid rgba(200,146,10,.2);padding:10px;border-radius:9px;text-align:center"><div style="font-size:9px;color:var(--muted)">السعر للعميل</div><div style="font-size:15px;font-weight:900;color:var(--gold2)">'+fmt(proj.finalPrice||0)+' ﷼</div></div>';
+  html += '<div style="background:var(--s2);padding:10px;border-radius:9px;text-align:center"><div style="font-size:9px;color:var(--muted)">إجمالي المصروف</div><div style="font-size:15px;font-weight:900;color:'+(over?'var(--red)':'var(--amber)')+'">'+fmt(purTotal)+' ﷼</div></div>';
+  html += '<div style="background:'+(over?'rgba(244,63,94,.08)':'rgba(34,197,94,.08)')+';border:1px solid '+(over?'rgba(244,63,94,.2)':'rgba(34,197,94,.2)')+';padding:10px;border-radius:9px;text-align:center"><div style="font-size:9px;color:var(--muted)">'+(over?'تجاوز':'المتبقي')+'</div><div style="font-size:15px;font-weight:900;color:'+(over?'var(--red)':'var(--green)')+'">'+fmt(Math.abs(remaining))+' ﷼</div></div>';
+  html += '</div>';
+
+  // Budget bar
+  html += '<div style="margin-bottom:12px">';
+  html += '<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:4px"><span>تقدم الإنفاق</span><span>'+pct+'%</span></div>';
+  html += '<div class="bbar"><div class="bbfill" style="width:'+pct+'%;background:'+(over?'var(--red)':parseFloat(pct)>80?'var(--amber)':'var(--green)')+'"></div></div>';
+  html += '</div>';
+
+  // Budget breakdown
+  html += '<div style="font-size:10px;font-weight:800;color:var(--muted);letter-spacing:1.5px;margin-bottom:7px">تفصيل الميزانية المخططة</div>';
+  html += '<div style="background:var(--s2);border-radius:9px;padding:10px;margin-bottom:12px;font-size:11px;line-height:2.2">';
+  html += '🔩 مواد خام: <strong>'+fmt(proj.mat||0)+'</strong> ﷼ &nbsp;|&nbsp; ';
+  html += '👷 عمالة: <strong>'+fmt(proj.lab||0)+'</strong> ﷼<br>';
+  html += '🔧 معدات: <strong>'+fmt(proj.equ||0)+'</strong> ﷼ &nbsp;|&nbsp; ';
+  html += '📦 مصاريف ثابتة: <strong>'+fmt(proj.ext||0)+'</strong> ﷼<br>';
+  html += '📈 هامش الربح: <strong style="color:var(--green)">'+( proj.profit||0)+'%</strong> &nbsp;|&nbsp; ';
+  html += 'ربح مخطط: <strong style="color:var(--green)">'+fmt((proj.cost||0)*(proj.profit||0)/100)+'</strong> ﷼';
+  html += '</div>';
+
+  // Purchases list
+  if(purs.length > 0) {
+    html += '<div style="font-size:10px;font-weight:800;color:var(--muted);letter-spacing:1.5px;margin-bottom:7px">قيود المشتريات ('+purs.length+')</div>';
+    purs.sort(function(a,b){ return (b.createdTs||0)-(a.createdTs||0); }).forEach(function(pur, idx) {
+      html += '<div style="background:var(--s2);border-radius:9px;padding:10px;margin-bottom:7px;border:1px solid '+(pur.img?'rgba(34,197,94,.3)':'var(--border)')+';">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">';
+      html += '<div><div style="font-size:12px;font-weight:700">'+escH(pur.vendor)+(pur.ref?' — #'+escH(pur.ref):'')+'</div>';
+      html += '<div style="font-size:10px;color:var(--muted)">📅 '+pur.date+' | 👤 '+escH(pur.createdBy)+'</div></div>';
+      if(pur.img) html += '<img src="'+pur.img+'" style="width:44px;height:44px;object-fit:cover;border-radius:7px;border:1px solid var(--border);cursor:pointer" data-action="openImg" data-src="'+pur.img+'">';
+      html += '</div>';
+      html += '<div style="font-size:11px;color:var(--muted);margin-bottom:5px">'+pur.items.map(function(i){ return escH(i.n)+': '+i.q+' × '+fmt(i.p)+' ﷼'; }).join(' | ')+'</div>';
+      html += '<div style="font-size:14px;font-weight:900;color:var(--amber)">'+fmt(pur.total)+' ﷼'+(pur.note?' — '+escH(pur.note):'')+'</div>';
+      html += '</div>';
+    });
+    html += '<div style="background:rgba(200,146,10,.08);border:1px solid rgba(200,146,10,.2);border-radius:9px;padding:10px;display:flex;justify-content:space-between;">';
+    html += '<span style="font-weight:800">إجمالي المشتريات الفعلية</span>';
+    html += '<span style="font-size:15px;font-weight:900;color:var(--amber)">'+fmt(purTotal)+' ﷼</span></div>';
+  } else {
+    html += '<div style="background:var(--s2);border-radius:9px;padding:14px;text-align:center;color:var(--muted);font-size:12px">لا توجد قيود مشتريات لهذا المشروع</div>';
+  }
+
+  // Show in modal
+  document.getElementById('pm-ttl').textContent = 'تقرير: '+proj.name;
+  document.getElementById('pm-wf').innerHTML = '';
+  document.getElementById('pm-body').innerHTML = html;
+  document.getElementById('pm-acts').innerHTML =
+    '<button class="btno" style="width:100%;margin-bottom:7px" data-action="openInvoice" data-projid="'+proj.id+'">🧾 فاتورة</button>' +
+    '<button class="btno" style="width:100%" data-action="openQuoteFor" data-projid="'+proj.id+'">📄 عرض سعر</button>';
+  openM('m-proj');
+}
+
+function openAllProjectsReport() {
+  var all = ALL_PROJECTS;
+  var totalRevenue = all.filter(function(p){ return p.status==='delivered'; }).reduce(function(s,p){ return s+(p.finalPrice||0); },0);
+  var totalCost    = all.filter(function(p){ return p.status==='delivered'; }).reduce(function(s,p){ return s+(p.cost||0); },0);
+  var totalPurch   = ALL_PURCHASES.reduce(function(s,p){ return s+p.total; },0);
+  var totalProfit  = totalRevenue - totalCost;
+
+  var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">';
+  html += '<div style="background:var(--s2);padding:10px;border-radius:9px;text-align:center"><div style="font-size:9px;color:var(--muted)">إجمالي المشاريع</div><div style="font-size:18px;font-weight:900;color:var(--gold2)">'+all.length+'</div></div>';
+  html += '<div style="background:var(--s2);padding:10px;border-radius:9px;text-align:center"><div style="font-size:9px;color:var(--muted)">إجمالي الإيرادات ﷼</div><div style="font-size:15px;font-weight:900;color:var(--green)">'+fmt(totalRevenue)+'</div></div>';
+  html += '<div style="background:var(--s2);padding:10px;border-radius:9px;text-align:center"><div style="font-size:9px;color:var(--muted)">إجمالي المشتريات ﷼</div><div style="font-size:15px;font-weight:900;color:var(--amber)">'+fmt(totalPurch)+'</div></div>';
+  html += '<div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);padding:10px;border-radius:9px;text-align:center"><div style="font-size:9px;color:var(--muted)">صافي الربح ﷼</div><div style="font-size:15px;font-weight:900;color:var(--green)">'+fmt(totalProfit)+'</div></div>';
+  html += '</div>';
+
+  // Table of all projects
+  html += '<div style="font-size:10px;font-weight:800;color:var(--muted);letter-spacing:1.5px;margin-bottom:8px">تفصيل جميع المشاريع</div>';
+  html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">';
+  html += '<tr style="background:var(--s3)"><th style="padding:7px;text-align:right;color:var(--muted);font-size:10px;font-weight:700">المشروع</th>'+
+    '<th style="padding:7px;text-align:center;color:var(--muted);font-size:10px;font-weight:700">الحالة</th>'+
+    '<th style="padding:7px;text-align:center;color:var(--muted);font-size:10px;font-weight:700">الميزانية ﷼</th>'+
+    '<th style="padding:7px;text-align:center;color:var(--muted);font-size:10px;font-weight:700">المصروف ﷼</th>'+
+    '<th style="padding:7px;text-align:center;color:var(--muted);font-size:10px;font-weight:700">السعر ﷼</th></tr>';
+
+  all.forEach(function(p, i) {
+    var pPurs = ALL_PURCHASES.filter(function(pur){ return pur.projId===p.id; }).reduce(function(s,pur){ return s+pur.total; },0);
+    var over = pPurs > (p.cost||0) && (p.cost||0)>0;
+    var st = STATUS[p.status]||STATUS.pending;
+    html += '<tr style="background:'+(i%2===0?'transparent':'rgba(255,255,255,.02)')+';cursor:pointer" data-action="openDetailedReport" data-projid="'+p.id+'">';
+    html += '<td style="padding:7px;border-bottom:1px solid rgba(255,255,255,.04)">'+escH(p.name)+'<div style="font-size:10px;color:var(--muted)">'+fmtDate(p.createdTs)+'</div></td>';
+    html += '<td style="padding:7px;border-bottom:1px solid rgba(255,255,255,.04);text-align:center"><span class="bdg '+st.cls+'" style="font-size:9px">'+st.icon+'</span></td>';
+    html += '<td style="padding:7px;border-bottom:1px solid rgba(255,255,255,.04);text-align:center">'+fmt(p.cost||0)+'</td>';
+    html += '<td style="padding:7px;border-bottom:1px solid rgba(255,255,255,.04);text-align:center;color:'+(over?'var(--red)':'var(--amber)')+'">'+fmt(pPurs)+(over?' ⚠️':'')+'</td>';
+    html += '<td style="padding:7px;border-bottom:1px solid rgba(255,255,255,.04);text-align:center;color:var(--gold2);font-weight:800">'+fmt(p.finalPrice||0)+'</td>';
+    html += '</tr>';
+  });
+  html += '</table></div>';
+  html += '<div style="font-size:10px;color:var(--muted);text-align:center;margin-top:8px">اضغط على أي مشروع لعرض تقريره التفصيلي</div>';
+
+  document.getElementById('pm-ttl').textContent = 'تقرير شامل — جميع المشاريع';
+  document.getElementById('pm-wf').innerHTML = '';
+  document.getElementById('pm-body').innerHTML = html;
+  document.getElementById('pm-acts').innerHTML = '';
+  openM('m-proj');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2456,12 +2590,13 @@ function renderThemeSwatches() {
   var s=getSettings(); var cur=s.themeId||'gold';
   el.innerHTML=THEMES.map(function(t){
     var active=t.id===cur;
-    return '<div onclick="applyTheme(\''+t.id+'\')" style="cursor:pointer;text-align:center">'+
-      '<div style="width:100%;height:36px;border-radius:10px;background:linear-gradient(135deg,'+t.accent+','+t.accent2+');'+
-      'border:2px solid '+(active?'var(--text)':'transparent')+';box-shadow:'+(active?'0 0 0 3px '+t.accent:'none')+';transition:all .2s;margin-bottom:5px"></div>'+
+    return '<div data-theme="'+t.id+'" style="cursor:pointer;text-align:center">' +
+      '<div style="width:100%;height:36px;border-radius:10px;background:linear-gradient(135deg,'+t.accent+','+t.accent2+');' +
+      'border:2px solid '+(active?'var(--text)':'transparent')+';box-shadow:'+(active?'0 0 0 3px '+t.accent:'none')+';transition:all .2s;margin-bottom:5px"></div>' +
       '<div style="font-size:10px;color:'+(active?'var(--text)':'var(--muted)')+';font-weight:'+(active?'800':'600')+'">'+t.name+'</div></div>';
   }).join('');
 }
+
 function restoreSavedTheme() {
   var s=getSettings();
   if(s.themeAccent){ var root=document.documentElement; root.style.setProperty('--gold',s.themeAccent); root.style.setProperty('--gold2',s.themeAccent2||s.themeAccent); }
@@ -2506,6 +2641,12 @@ function switchSetupTab(tab) {
 // EVENT DELEGATION
 // ═══════════════════════════════════════════════════════
 document.addEventListener('click', function(e) {
+  // Theme swatch click
+  var swatch = e.target.closest('[data-theme]');
+  if(swatch && swatch.dataset.theme) {
+    applyTheme(swatch.dataset.theme);
+    return;
+  }
   var el=e.target.closest('[data-action]');
   if(el){
     var a=el.dataset.action, pid=el.dataset.projid, uid2=el.dataset.uid, purid=el.dataset.purid, src=el.dataset.src;
@@ -2519,6 +2660,8 @@ document.addEventListener('click', function(e) {
     else if(a==='openInvoice')  openInvoice(pid);
     else if(a==='openQuoteFor') openQuoteFor(pid);
     else if(a==='openPurDetail') openPurDetail(purid);
+    else if(a==='openDetailedReport') { closeM('m-proj'); openDetailedReport(pid); }
+    else if(a==='openAllProjectsReport') openAllProjectsReport();
     else if(a==='deletePurchase') deletePurchase(purid);
     else if(a==='deleteUser')  deleteUser(uid2);
     else if(a==='openImg'&&src) window.open(src,'_blank');
