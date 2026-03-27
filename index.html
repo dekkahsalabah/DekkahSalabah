@@ -1328,13 +1328,24 @@ function showApp() {
   // Load settings fields
   loadSettingsFields();
   restoreSavedTheme();
+  hideSplash();
 
   if(CU.role === 'store') {
-    goPage('purchases');
+    // Wait for projects to load before showing purchases page
+    if(ALL_PROJECTS.length > 0) {
+      goPage('purchases');
+    } else {
+      // Show loading state then navigate when data arrives
+      goPage('purchases');
+      var storeWait = setInterval(function() {
+        loadPurchasesPage();
+        if(ALL_PROJECTS.length > 0) clearInterval(storeWait);
+      }, 800);
+      setTimeout(function(){ clearInterval(storeWait); }, 8000);
+    }
   } else {
     loadDashboard();
   }
-  hideSplash();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1355,7 +1366,10 @@ function subscribeProjects() {
       if(curPage.id === 'page-compare')   loadCompare();
       if(curPage.id === 'page-purreport') loadPurReport();
       if(curPage.id === 'page-reports')   loadReports();
+      if(curPage.id === 'page-purchases') loadPurchasesPage();
     }
+    // Always update dashboard stats for all roles
+    updateDashStats();
     checkBudgetAlerts();
   }, function(err){ console.error('projects subscription error:', err); });
 }
@@ -1365,11 +1379,16 @@ function subscribePurchases() {
   UNSUB_PURCHASES = fbFns.onSnapshot(col('purchases'), function(snap) {
     ALL_PURCHASES = snap.docs.map(function(d){ return Object.assign({id:d.id}, d.data()); });
     ALL_PURCHASES.sort(function(a,b){ return (b.createdTs||0)-(a.createdTs||0); });
+    updateDashStats();
     var curPage = document.querySelector('.page.on');
     if(curPage) {
       if(curPage.id === 'page-purchases') loadPurHistory();
       if(curPage.id === 'page-purreport') loadPurReport();
       if(curPage.id === 'page-reports')   loadReports();
+      // Refresh projects list to update purchase totals shown per project
+      if(curPage.id === 'page-projects')  renderProjects();
+      if(curPage.id === 'page-dash')      renderDashProjects();
+      if(curPage.id === 'page-compare')   loadCompare();
     }
     checkBudgetAlerts();
   }, function(err){ console.error('purchases subscription error:', err); });
@@ -1783,7 +1802,24 @@ function loadPurchasesPage() {
   var cur = sel.value;
   sel.innerHTML = '<option value="">-- اختر المشروع --</option>';
   var list = ALL_PROJECTS;
-  if(CU.role==='store') list=list.filter(function(p){ return ['approved','production','done','delivered'].indexOf(p.status)>=0; });
+  // Store role sees approved/production/done projects - but if empty show info
+  if(CU.role==='store') {
+    list = list.filter(function(p){ return ['approved','production','done','delivered'].indexOf(p.status)>=0; });
+  }
+  if(list.length === 0 && ALL_PROJECTS.length === 0) {
+    // Still loading
+    sel.innerHTML = '<option value="">⏳ جاري تحميل المشاريع...</option>';
+    setTimeout(loadPurchasesPage, 1000);
+    renderPurRows();
+    loadPurHistory();
+    return;
+  }
+  if(list.length === 0 && ALL_PROJECTS.length > 0) {
+    sel.innerHTML = '<option value="">لا توجد مشاريع معتمدة بعد</option>';
+    renderPurRows();
+    loadPurHistory();
+    return;
+  }
   list.forEach(function(p){
     var o=document.createElement('option'); o.value=p.id;
     o.textContent=p.name+' ('+(STATUS[p.status]?STATUS[p.status].label:p.status)+')';
