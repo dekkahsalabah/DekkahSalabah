@@ -1254,31 +1254,37 @@ function firstSetup() {
   if(!name||!user||!pass) { toast('⚠️ أكمل الحقول'); return; }
   if(pass.length < 6) { toast('⚠️ كلمة المرور يجب أن تكون 6 أحرف على الأقل'); return; }
 
-  // Check username not taken
+  // Create Firebase Auth account first, then write to Firestore after auth
+  // This avoids needing Firestore read permission before login
+  var email = user + '@dekkah-salabah.internal';
+  showSplash('جاري إعداد النظام...');
+
   waitDB(function() {
-    fbFns.getDocs(fbFns.query(col('users'), fbFns.where('username','==', user)))
-    .then(function(snap) {
-      if(!snap.empty) { toast('⚠️ اسم المستخدم مستخدم مسبقاً'); return; }
-      // Create admin email = username@dekkah-salabah.app (internal email for Firebase Auth)
-      var email = user + '@dekkah-salabah.internal';
-      return fbFns.createUserWithEmailAndPassword(fbAuth, email, pass)
-        .then(function(cred) {
-          var newUser = {
-            name: name, username: user, email: email,
-            role: 'admin', createdAt: nowStr(), createdTs: Date.now()
-          };
-          return fsSet('users', cred.user.uid, newUser).then(function() {
-            // Save settings
-            var s = getSettings();
-            s.company = co || s.company;
-            saveSettings(s);
-            addLog('تهيئة النظام وإنشاء حساب المدير', '🚀', name, 'admin');
-            closeM('m-setup');
-            toast('✅ تم إعداد النظام');
-          });
-        });
+    fbFns.createUserWithEmailAndPassword(fbAuth, email, pass)
+    .then(function(cred) {
+      // Now authenticated — write user doc
+      var newUser = {
+        name: name, username: user, email: email,
+        role: 'admin', createdAt: nowStr(), createdTs: Date.now()
+      };
+      return fsSet('users', cred.user.uid, newUser).then(function() {
+        var s = getSettings();
+        s.company = co || s.company;
+        saveSettings(s);
+        addLog('تهيئة النظام وإنشاء حساب المدير', '🚀', name, 'admin');
+        closeM('m-setup');
+        hideSplash();
+        toast('✅ تم إعداد النظام بنجاح');
+      });
     })
-    .catch(function(err) { toast('❌ ' + err.message); });
+    .catch(function(err) {
+      hideSplash();
+      if(err.code === 'auth/email-already-in-use') {
+        toast('⚠️ اسم المستخدم محجوز — جرب اسماً آخر');
+      } else {
+        toast('❌ ' + err.message);
+      }
+    });
   });
 }
 
