@@ -2366,8 +2366,14 @@ function openDetailedReport(projId) {
   document.getElementById('pm-wf').innerHTML = '';
   document.getElementById('pm-body').innerHTML = html;
   document.getElementById('pm-acts').innerHTML =
-    '<button class="btno" style="width:100%;margin-bottom:7px" data-action="openInvoice" data-projid="'+proj.id+'">🧾 فاتورة</button>' +
-    '<button class="btno" style="width:100%" data-action="openQuoteFor" data-projid="'+proj.id+'">📄 عرض سعر</button>';
+    '<div class="brow">' +
+    '<button class="btng" style="font-size:11px" data-action="printProjectReport" data-projid="'+proj.id+'">🖨️ طباعة / PDF</button>' +
+    '<button class="btno" style="font-size:11px" data-action="exportProjectExcel" data-projid="'+proj.id+'">📊 Excel</button>' +
+    '</div>' +
+    '<div class="brow">' +
+    '<button class="btno" style="font-size:11px" data-action="openInvoice" data-projid="'+proj.id+'">🧾 فاتورة</button>' +
+    '<button class="btno" style="font-size:11px" data-action="openQuoteFor" data-projid="'+proj.id+'">📄 عرض سعر</button>' +
+    '</div>';
   openM('m-proj');
 }
 
@@ -2412,8 +2418,393 @@ function openAllProjectsReport() {
   document.getElementById('pm-ttl').textContent = 'تقرير شامل — جميع المشاريع';
   document.getElementById('pm-wf').innerHTML = '';
   document.getElementById('pm-body').innerHTML = html;
-  document.getElementById('pm-acts').innerHTML = '';
+  document.getElementById('pm-acts').innerHTML =
+    '<div class="brow">' +
+    '<button class="btng" style="font-size:11px" id="btn-print-all-rep">🖨️ طباعة / PDF</button>' +
+    '<button class="btno" style="font-size:11px" id="btn-excel-all-rep">📊 Excel</button>' +
+    '</div>';
   openM('m-proj');
+  // Wire export buttons
+  var bpa = document.getElementById('btn-print-all-rep');
+  var bea = document.getElementById('btn-excel-all-rep');
+  if(bpa) bpa.addEventListener('click', printAllReport);
+  if(bea) bea.addEventListener('click', exportAllExcel);
+}
+
+
+// ═══════════════════════════════════════════════════════
+// EXPORT REPORTS — Word / PDF / Excel
+// ═══════════════════════════════════════════════════════
+
+// ── HTML → Print (PDF) ──────────────────────────────
+function printProjectReport(projId) {
+  var proj = null;
+  for(var i=0;i<ALL_PROJECTS.length;i++){ if(ALL_PROJECTS[i].id===projId){ proj=ALL_PROJECTS[i]; break; } }
+  if(!proj) return;
+  var purs = ALL_PURCHASES.filter(function(p){ return p.projId===projId; });
+  var purTotal = purs.reduce(function(s,p){ return s+p.total; },0);
+  var s = getSettings();
+  var html = buildReportHTML(proj, purs, purTotal, s);
+  var w = window.open('','_blank');
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(function(){ w.print(); }, 600);
+}
+
+function printAllReport() {
+  var all = ALL_PROJECTS;
+  var s = getSettings();
+  var totalRev  = all.filter(function(p){ return p.status==='delivered'; }).reduce(function(s,p){ return s+(p.finalPrice||0); },0);
+  var totalPurch = ALL_PURCHASES.reduce(function(s,p){ return s+p.total; },0);
+  var html = buildAllProjectsReportHTML(all, s, totalRev, totalPurch);
+  var w = window.open('','_blank');
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(function(){ w.print(); }, 600);
+}
+
+// ── Excel Export ─────────────────────────────────────
+function exportProjectExcel(projId) {
+  var proj = null;
+  for(var i=0;i<ALL_PROJECTS.length;i++){ if(ALL_PROJECTS[i].id===projId){ proj=ALL_PROJECTS[i]; break; } }
+  if(!proj) return;
+  var purs = ALL_PURCHASES.filter(function(p){ return p.projId===projId; });
+  var rows = [];
+  // Header
+  rows.push(['تقرير مشروع: '+proj.name,'','','','']);
+  rows.push(['التاريخ: '+fmtDate(proj.createdTs),'','','','']);
+  rows.push(['الحالة: '+(STATUS[proj.status]?STATUS[proj.status].label:proj.status),'','','','']);
+  rows.push(['','','','','']);
+  // Budget breakdown
+  rows.push(['=== الميزانية المخططة ===','','','','']);
+  rows.push(['البند','','','','المبلغ (ريال)']);
+  rows.push(['إجمالي الميزانية','','','',proj.cost||0]);
+  rows.push(['  مواد خام','','','',proj.mat||0]);
+  rows.push(['  تكاليف عمالة','','','',proj.lab||0]);
+  rows.push(['  معدات وأدوات','','','',proj.equ||0]);
+  rows.push(['  مصاريف ثابتة','','','',proj.ext||0]);
+  rows.push(['السعر النهائي للعميل','','','',proj.finalPrice||0]);
+  rows.push(['هامش الربح','','','',( proj.profit||0)+'%']);
+  // Material rows
+  if(proj.matRows && proj.matRows.length) {
+    rows.push(['','','','','']);
+    rows.push(['=== تفصيل المواد الخام ===','','','','']);
+    rows.push(['المادة','الكمية','السعر/وحدة','','الإجمالي']);
+    proj.matRows.forEach(function(r){ if(r.n) rows.push([r.n,r.q,r.p,'',( +r.q)*(+r.p)]); });
+  }
+  // Labor rows
+  if(proj.labRows && proj.labRows.length) {
+    rows.push(['','','','','']);
+    rows.push(['=== تفصيل العمالة ===','','','','']);
+    rows.push(['التخصص','الأيام','اليومية','','الإجمالي']);
+    proj.labRows.forEach(function(r){ if(r.n) rows.push([r.n,r.q,r.p,'',( +r.q)*(+r.p)]); });
+  }
+  // Equipment rows
+  if(proj.equRows && proj.equRows.length) {
+    rows.push(['','','','','']);
+    rows.push(['=== تفصيل المعدات ===','','','','']);
+    rows.push(['البند','الكمية','السعر','','الإجمالي']);
+    proj.equRows.forEach(function(r){ if(r.n) rows.push([r.n,r.q,r.p,'',( +r.q)*(+r.p)]); });
+  }
+  // Purchases
+  if(purs.length) {
+    rows.push(['','','','','']);
+    rows.push(['=== قيود المشتريات الفعلية ===','','','','']);
+    rows.push(['المورد','التاريخ','البنود','','الإجمالي']);
+    purs.forEach(function(pur){
+      rows.push([pur.vendor, pur.date, pur.items.map(function(i){ return i.n+' ('+i.q+'×'+i.p+')'; }).join(' | '),'',pur.total]);
+    });
+    rows.push(['إجمالي المشتريات الفعلية','','','',purs.reduce(function(s,p){ return s+p.total; },0)]);
+  }
+  downloadCSV(rows, 'تقرير-'+proj.name+'-'+new Date().toISOString().slice(0,10)+'.csv');
+}
+
+function exportAllExcel() {
+  var rows = [];
+  rows.push(['تقرير شامل — جميع المشاريع','','','','','']);
+  rows.push(['التاريخ: '+new Date().toLocaleDateString('ar-SA'),'','','','','']);
+  rows.push(['','','','','','']);
+  rows.push(['المشروع','الحالة','الميزانية المخططة','السعر النهائي','المصروف الفعلي','الفرق']);
+  ALL_PROJECTS.forEach(function(p){
+    var pPurs = ALL_PURCHASES.filter(function(pur){ return pur.projId===p.id; }).reduce(function(s,pur){ return s+pur.total; },0);
+    var st = STATUS[p.status] ? STATUS[p.status].label : p.status;
+    var diff = (p.cost||0) - pPurs;
+    rows.push([p.name, st, p.cost||0, p.finalPrice||0, pPurs, diff]);
+  });
+  rows.push(['','','','','','']);
+  var totalPurch = ALL_PURCHASES.reduce(function(s,p){ return s+p.total; },0);
+  var totalRev   = ALL_PROJECTS.filter(function(p){ return p.status==='delivered'; }).reduce(function(s,p){ return s+(p.finalPrice||0); },0);
+  rows.push(['الإجمالي','','','',totalPurch,'']);
+  rows.push(['إجمالي الإيرادات','','',totalRev,'','']);
+  rows.push(['','','','','','']);
+  // Purchases detail sheet
+  rows.push(['=== تفصيل جميع المشتريات ===','','','','','']);
+  rows.push(['المشروع','المورد','التاريخ','البنود','','الإجمالي']);
+  ALL_PURCHASES.forEach(function(pur){
+    rows.push([pur.projName, pur.vendor, pur.date, pur.items.map(function(i){ return i.n+' ('+i.q+'×'+i.p+')'; }).join(' | '),'',pur.total]);
+  });
+  downloadCSV(rows, 'تقرير-شامل-'+new Date().toISOString().slice(0,10)+'.csv');
+}
+
+function downloadCSV(rows, filename) {
+  var BOM = '\uFEFF'; // UTF-8 BOM for Arabic in Excel
+  var csv = BOM + rows.map(function(row){
+    return row.map(function(cell){
+      var c = String(cell||'');
+      if(c.indexOf(',')>=0 || c.indexOf('"')>=0 || c.indexOf('\n')>=0) {
+        c = '"' + c.replace(/"/g,'""') + '"';
+      }
+      return c;
+    }).join(',');
+  }).join('\n');
+  var blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  var url  = URL.createObjectURL(blob);
+  var a    = document.createElement('a');
+  a.href   = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+  toast('✅ تم التصدير — افتح الملف في Excel');
+}
+
+// ── HTML Report Builder ──────────────────────────────
+function buildReportHTML(proj, purs, purTotal, settings) {
+  var logo = settings.logo || 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0MDAgMjAwIiB3aWR0aD0iNDAwIiBoZWlnaHQ9IjIwMCI+CiAgPGRlZnM+CiAgICA8IS0tIFN0ZWVsIGdyYWRpZW50IGJhY2tncm91bmQgLS0+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9InN0ZWVsQmciIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjEwMCUiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdHlsZT0ic3RvcC1jb2xvcjojMWExYTFhIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iNTAlIiBzdHlsZT0ic3RvcC1jb2xvcjojMGQwZDBkIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3R5bGU9InN0b3AtY29sb3I6IzFhMWExYSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDwhLS0gR29sZCBhY2NlbnQgZ3JhZGllbnQgLS0+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImdvbGRHcmFkIiB4MT0iMCUiIHkxPSIwJSIgeDI9IjEwMCUiIHkyPSIwJSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0eWxlPSJzdG9wLWNvbG9yOiNiODg2MGIiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI1MCUiIHN0eWxlPSJzdG9wLWNvbG9yOiNmMGMwNDAiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdHlsZT0ic3RvcC1jb2xvcjojYjg4NjBiIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPCEtLSBTdGVlbCBzaGluZSBmb3IgaWNvbiAtLT4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ic3RlZWxTaGluZSIgeDE9IjAlIiB5MT0iMCUiIHgyPSIxMDAlIiB5Mj0iMTAwJSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0eWxlPSJzdG9wLWNvbG9yOiNjMGMwYzAiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI0MCUiIHN0eWxlPSJzdG9wLWNvbG9yOiNlOGU4ZTgiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdHlsZT0ic3RvcC1jb2xvcjojODg4Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPCEtLSBTcGFyayBnbG93IC0tPgogICAgPGZpbHRlciBpZD0iZ2xvdyI+CiAgICAgIDxmZUdhdXNzaWFuQmx1ciBzdGREZXZpYXRpb249IjIiIHJlc3VsdD0iYmx1ciIvPgogICAgICA8ZmVNZXJnZT48ZmVNZXJnZU5vZGUgaW49ImJsdXIiLz48ZmVNZXJnZU5vZGUgaW49IlNvdXJjZUdyYXBoaWMiLz48L2ZlTWVyZ2U+CiAgICA8L2ZpbHRlcj4KICAgIDxmaWx0ZXIgaWQ9InNwYXJrR2xvdyI+CiAgICAgIDxmZUdhdXNzaWFuQmx1ciBzdGREZXZpYXRpb249IjEuNSIgcmVzdWx0PSJibHVyIi8+CiAgICAgIDxmZU1lcmdlPjxmZU1lcmdlTm9kZSBpbj0iYmx1ciIvPjxmZU1lcmdlTm9kZSBpbj0iU291cmNlR3JhcGhpYyIvPjwvZmVNZXJnZT4KICAgIDwvZmlsdGVyPgogIDwvZGVmcz4KCiAgPCEtLSBPdXRlciBnZW9tZXRyaWMgZnJhbWUgLSBoZXhhZ29uYWwgaW5kdXN0cmlhbCBib3JkZXIgLS0+CiAgPHJlY3QgeD0iMiIgeT0iMiIgd2lkdGg9IjM5NiIgaGVpZ2h0PSIxOTYiIHJ4PSI4IiByeT0iOCIgZmlsbD0idXJsKCNzdGVlbEJnKSIgc3Ryb2tlPSJ1cmwoI2dvbGRHcmFkKSIgc3Ryb2tlLXdpZHRoPSIyLjUiLz4KCiAgPCEtLSBDb3JuZXIgbWFya3MgLSBpbmR1c3RyaWFsIGZlZWwgLS0+CiAgPGxpbmUgeDE9IjIiIHkxPSIzMCIgeDI9IjIiIHkyPSIyIiBzdHJva2U9IiNmMGMwNDAiIHN0cm9rZS13aWR0aD0iMi41Ii8+CiAgPGxpbmUgeDE9IjIiIHkxPSIyIiB4Mj0iMzAiIHkyPSIyIiBzdHJva2U9IiNmMGMwNDAiIHN0cm9rZS13aWR0aD0iMi41Ii8+CiAgPGxpbmUgeDE9IjM5OCIgeTE9IjMwIiB4Mj0iMzk4IiB5Mj0iMiIgc3Ryb2tlPSIjZjBjMDQwIiBzdHJva2Utd2lkdGg9IjIuNSIvPgogIDxsaW5lIHgxPSIzOTgiIHkxPSIyIiB4Mj0iMzcwIiB5Mj0iMiIgc3Ryb2tlPSIjZjBjMDQwIiBzdHJva2Utd2lkdGg9IjIuNSIvPgogIDxsaW5lIHgxPSIyIiB5MT0iMTcwIiB4Mj0iMiIgeTI9IjE5OCIgc3Ryb2tlPSIjZjBjMDQwIiBzdHJva2Utd2lkdGg9IjIuNSIvPgogIDxsaW5lIHgxPSIyIiB5MT0iMTk4IiB4Mj0iMzAiIHkyPSIxOTgiIHN0cm9rZT0iI2YwYzA0MCIgc3Ryb2tlLXdpZHRoPSIyLjUiLz4KICA8bGluZSB4MT0iMzk4IiB5MT0iMTcwIiB4Mj0iMzk4IiB5Mj0iMTk4IiBzdHJva2U9IiNmMGMwNDAiIHN0cm9rZS13aWR0aD0iMi41Ii8+CiAgPGxpbmUgeDE9IjM5OCIgeTE9IjE5OCIgeDI9IjM3MCIgeTI9IjE5OCIgc3Ryb2tlPSIjZjBjMDQwIiBzdHJva2Utd2lkdGg9IjIuNSIvPgoKICA8IS0tIFN1YnRsZSBzdGVlbCBwbGF0ZSB0ZXh0dXJlIGxpbmVzIC0tPgogIDxsaW5lIHgxPSIyIiB5MT0iNjAiIHgyPSIzOTgiIHkyPSI2MCIgc3Ryb2tlPSIjMmEyYTJhIiBzdHJva2Utd2lkdGg9IjAuNSIvPgogIDxsaW5lIHgxPSIyIiB5MT0iMTQwIiB4Mj0iMzk4IiB5Mj0iMTQwIiBzdHJva2U9IiMyYTJhMmEiIHN0cm9rZS13aWR0aD0iMC41Ii8+CgogIDwhLS0g4pWQ4pWQ4pWQIExFRlQgSUNPTiBBUkVBIOKVkOKVkOKVkCAtLT4KICA8IS0tIENhcmF2YW4vdHJhaWxlciBzaWxob3VldHRlIChzaW1wbGUgZ2VvbWV0cmljKSAtLT4KICA8IS0tIENhcmF2YW4gYm9keSAtLT4KICA8cmVjdCB4PSIxOCIgeT0iOTUiIHdpZHRoPSI4OCIgaGVpZ2h0PSI1MiIgcng9IjYiIGZpbGw9Im5vbmUiIHN0cm9rZT0idXJsKCNzdGVlbFNoaW5lKSIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPCEtLSBSb29mIGN1cnZlIC0tPgogIDxwYXRoIGQ9Ik0xOCAxMDEgUTYyIDc4IDEwNiAxMDEiIGZpbGw9Im5vbmUiIHN0cm9rZT0idXJsKCNzdGVlbFNoaW5lKSIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPCEtLSBXaW5kb3cgMSAtLT4KICA8cmVjdCB4PSIyOCIgeT0iMTAyIiB3aWR0aD0iMTgiIGhlaWdodD0iMTQiIHJ4PSIyIiBmaWxsPSJub25lIiBzdHJva2U9IiNmMGMwNDAiIHN0cm9rZS13aWR0aD0iMS41Ii8+CiAgPCEtLSBXaW5kb3cgMiAtLT4KICA8cmVjdCB4PSI1MiIgeT0iMTAyIiB3aWR0aD0iMTgiIGhlaWdodD0iMTQiIHJ4PSIyIiBmaWxsPSJub25lIiBzdHJva2U9IiNmMGMwNDAiIHN0cm9rZS13aWR0aD0iMS41Ii8+CiAgPCEtLSBEb29yIC0tPgogIDxyZWN0IHg9IjgwIiB5PSIxMDgiIHdpZHRoPSIxNiIgaGVpZ2h0PSIyOCIgcng9IjIiIGZpbGw9Im5vbmUiIHN0cm9rZT0idXJsKCNzdGVlbFNoaW5lKSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4KICA8IS0tIEhpdGNoIC0tPgogIDxsaW5lIHgxPSIxMDYiIHkxPSIxNDAiIHgyPSIxMTgiIHkyPSIxNDAiIHN0cm9rZT0idXJsKCNzdGVlbFNoaW5lKSIgc3Ryb2tlLXdpZHRoPSIyLjUiLz4KICA8IS0tIFdoZWVscyAtLT4KICA8Y2lyY2xlIGN4PSIzOCIgY3k9IjE1MCIgcj0iOSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJ1cmwoI3N0ZWVsU2hpbmUpIiBzdHJva2Utd2lkdGg9IjIiLz4KICA8Y2lyY2xlIGN4PSIzOCIgY3k9IjE1MCIgcj0iNCIgZmlsbD0iI2YwYzA0MCIvPgogIDxjaXJjbGUgY3g9IjgyIiBjeT0iMTUwIiByPSI5IiBmaWxsPSJub25lIiBzdHJva2U9InVybCgjc3RlZWxTaGluZSkiIHN0cm9rZS13aWR0aD0iMiIvPgogIDxjaXJjbGUgY3g9IjgyIiBjeT0iMTUwIiByPSI0IiBmaWxsPSIjZjBjMDQwIi8+CiAgPCEtLSBHcm91bmQgbGluZSAtLT4KICA8bGluZSB4MT0iMTgiIHkxPSIxNTkiIHgyPSIxMTgiIHkyPSIxNTkiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIxIi8+CgogIDwhLS0gV2VsZGVyIGZpZ3VyZSAocmlnaHQgb2YgY2FyYXZhbikgLSBzdHlsaXplZCAtLT4KICA8IS0tIEJvZHkgLS0+CiAgPGxpbmUgeDE9IjEzMCIgeTE9IjEwOCIgeDI9IjEzMCIgeTI9IjE0MCIgc3Ryb2tlPSJ1cmwoI3N0ZWVsU2hpbmUpIiBzdHJva2Utd2lkdGg9IjMiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDwhLS0gSGVsbWV0L0hlYWQgLS0+CiAgPHJlY3QgeD0iMTIyIiB5PSI5NiIgd2lkdGg9IjE2IiBoZWlnaHQ9IjEzIiByeD0iMyIgZmlsbD0idXJsKCNzdGVlbFNoaW5lKSIvPgogIDxyZWN0IHg9IjEyNCIgeT0iMTAxIiB3aWR0aD0iMTAiIGhlaWdodD0iNSIgcng9IjEiIGZpbGw9IiMxYTFhMWEiLz4KICA8IS0tIEFybXMgLS0+CiAgPGxpbmUgeDE9IjEzMCIgeTE9IjExNSIgeDI9IjExOCIgeTI9IjEyNSIgc3Ryb2tlPSJ1cmwoI3N0ZWVsU2hpbmUpIiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGxpbmUgeDE9IjEzMCIgeTE9IjExNSIgeDI9IjE0MiIgeTI9IjEyMiIgc3Ryb2tlPSJ1cmwoI3N0ZWVsU2hpbmUpIiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPCEtLSBXZWxkaW5nIHRvcmNoIC0tPgogIDxsaW5lIHgxPSIxMTgiIHkxPSIxMjUiIHgyPSIxMTIiIHkyPSIxMzIiIHN0cm9rZT0idXJsKCNzdGVlbFNoaW5lKSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8IS0tIExlZ3MgLS0+CiAgPGxpbmUgeDE9IjEzMCIgeTE9IjE0MCIgeDI9IjEyMiIgeTI9IjE1OCIgc3Ryb2tlPSJ1cmwoI3N0ZWVsU2hpbmUpIiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGxpbmUgeDE9IjEzMCIgeTE9IjE0MCIgeDI9IjEzOCIgeTI9IjE1OCIgc3Ryb2tlPSJ1cmwoI3N0ZWVsU2hpbmUpIiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CgogIDwhLS0gV2VsZGluZyBzcGFya3MgLS0+CiAgPGcgZmlsdGVyPSJ1cmwoI3NwYXJrR2xvdykiPgogICAgPGNpcmNsZSBjeD0iMTA5IiBjeT0iMTM1IiByPSIxLjUiIGZpbGw9IiNmMGMwNDAiLz4KICAgIDxsaW5lIHgxPSIxMDkiIHkxPSIxMzUiIHgyPSIxMDMiIHkyPSIxMjkiIHN0cm9rZT0iI2YwYzA0MCIgc3Ryb2tlLXdpZHRoPSIxIiBvcGFjaXR5PSIwLjkiLz4KICAgIDxsaW5lIHgxPSIxMDkiIHkxPSIxMzUiIHgyPSIxMTUiIHkyPSIxMjgiIHN0cm9rZT0iI2ZmOGMwMCIgc3Ryb2tlLXdpZHRoPSIwLjgiIG9wYWNpdHk9IjAuOCIvPgogICAgPGxpbmUgeDE9IjEwOSIgeTE9IjEzNSIgeDI9IjEwNSIgeTI9IjE0MiIgc3Ryb2tlPSIjZjBjMDQwIiBzdHJva2Utd2lkdGg9IjAuOCIgb3BhY2l0eT0iMC43Ii8+CiAgICA8bGluZSB4MT0iMTA5IiB5MT0iMTM1IiB4Mj0iMTE2IiB5Mj0iMTM4IiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMC42IiBvcGFjaXR5PSIwLjkiLz4KICAgIDxjaXJjbGUgY3g9IjEwMiIgY3k9IjEyOCIgcj0iMSIgZmlsbD0iI2ZmOGMwMCIgb3BhY2l0eT0iMC44Ii8+CiAgICA8Y2lyY2xlIGN4PSIxMTYiIGN5PSIxMjciIHI9IjAuOCIgZmlsbD0iI2ZmZiIgb3BhY2l0eT0iMC45Ii8+CiAgICA8Y2lyY2xlIGN4PSIxMDQiIGN5PSIxNDMiIHI9IjAuNyIgZmlsbD0iI2YwYzA0MCIgb3BhY2l0eT0iMC43Ii8+CiAgPC9nPgoKICA8IS0tIFZlcnRpY2FsIGRpdmlkZXIgLS0+CiAgPGxpbmUgeDE9IjE1OCIgeTE9IjIwIiB4Mj0iMTU4IiB5Mj0iMTgwIiBzdHJva2U9IiMzMzMiIHN0cm9rZS13aWR0aD0iMSIvPgogIDxsaW5lIHgxPSIxNTkiIHkxPSIyMCIgeDI9IjE1OSIgeTI9IjE4MCIgc3Ryb2tlPSIjMmEyYTJhIiBzdHJva2Utd2lkdGg9IjAuNSIvPgoKICA8IS0tIOKVkOKVkOKVkCBSSUdIVCBURVhUIEFSRUEg4pWQ4pWQ4pWQIC0tPgogIDwhLS0gQXJhYmljIGJyYW5kIG5hbWUgLSBERUtLQSAtLT4KICA8dGV4dCB4PSIyNzgiIHk9Ijc1IiAKICAgIGZvbnQtZmFtaWx5PSInQXJpYWwgQmxhY2snLCAnSW1wYWN0Jywgc2Fucy1zZXJpZiIgCiAgICBmb250LXNpemU9IjUyIiAKICAgIGZvbnQtd2VpZ2h0PSI5MDAiCiAgICBmaWxsPSJ1cmwoI2dvbGRHcmFkKSIKICAgIHRleHQtYW5jaG9yPSJtaWRkbGUiCiAgICBsZXR0ZXItc3BhY2luZz0iNCIKICAgIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiPkRFS0tBPC90ZXh0PgoKICA8IS0tIERlY29yYXRpdmUgbGluZSB1bmRlciBERUtLQSAtLT4KICA8bGluZSB4MT0iMTc4IiB5MT0iOTUiIHgyPSIzNzgiIHkyPSI5NSIgc3Ryb2tlPSJ1cmwoI2dvbGRHcmFkKSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4KICA8bGluZSB4MT0iMjAwIiB5MT0iOTgiIHgyPSIzNTYiIHkyPSI5OCIgc3Ryb2tlPSIjMzMzIiBzdHJva2Utd2lkdGg9IjAuNSIvPgoKICA8IS0tIEFtcGVyc2FuZCAtLT4KICA8dGV4dCB4PSIyNzgiIHk9IjExOCIKICAgIGZvbnQtZmFtaWx5PSInQXJpYWwgQmxhY2snLCBzYW5zLXNlcmlmIgogICAgZm9udC1zaXplPSIxMyIKICAgIGZpbGw9IiM4ODgiCiAgICB0ZXh0LWFuY2hvcj0ibWlkZGxlIgogICAgbGV0dGVyLXNwYWNpbmc9IjgiPuKcpiAgJmFtcDsgIOKcpjwvdGV4dD4KCiAgPCEtLSBTQUxBQkFIIC0tPgogIDx0ZXh0IHg9IjI3OCIgeT0iMTQ4IgogICAgZm9udC1mYW1pbHk9IidBcmlhbCBCbGFjaycsICdJbXBhY3QnLCBzYW5zLXNlcmlmIgogICAgZm9udC1zaXplPSIzOCIKICAgIGZvbnQtd2VpZ2h0PSI5MDAiCiAgICBmaWxsPSJ1cmwoI3N0ZWVsU2hpbmUpIgogICAgdGV4dC1hbmNob3I9Im1pZGRsZSIKICAgIGxldHRlci1zcGFjaW5nPSIzIgogICAgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSI+U0FMQUJBSDwvdGV4dD4KCiAgPCEtLSBUYWdsaW5lIC0tPgogIDxsaW5lIHgxPSIxNzgiIHkxPSIxNjIiIHgyPSIzNzgiIHkyPSIxNjIiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIxIi8+CiAgPHRleHQgeD0iMjc4IiB5PSIxNzUiCiAgICBmb250LWZhbWlseT0iJ0FyaWFsJywgc2Fucy1zZXJpZiIKICAgIGZvbnQtc2l6ZT0iMTAiCiAgICBmaWxsPSIjNjY2IgogICAgdGV4dC1hbmNob3I9Im1pZGRsZSIKICAgIGxldHRlci1zcGFjaW5nPSIzIgogICAgZm9udC13ZWlnaHQ9IjYwMCI+Q0FSQVZBTlMgIMK3ICBTVEVFTCAgU1RSVUNUVVJFUzwvdGV4dD4KCiAgPCEtLSBUb3AgbGFiZWwgQVIgLS0+CiAgPHRleHQgeD0iMjc4IiB5PSIzNSIKICAgIGZvbnQtZmFtaWx5PSInQXJpYWwnLCBzYW5zLXNlcmlmIgogICAgZm9udC1zaXplPSIxMSIKICAgIGZpbGw9IiM1NTUiCiAgICB0ZXh0LWFuY2hvcj0ibWlkZGxlIgogICAgbGV0dGVyLXNwYWNpbmc9IjIiPtiv2YLYqSAgwrcgINi12YTYp9io2KkgIMK3ICDYp9it2KrYsdin2YE8L3RleHQ+CiAgPGxpbmUgeDE9IjE3OCIgeTE9IjQ0IiB4Mj0iMzc4IiB5Mj0iNDQiIHN0cm9rZT0iIzIyMiIgc3Ryb2tlLXdpZHRoPSIwLjgiLz4KCjwvc3ZnPg==';
+  var remaining = (proj.cost||0) - purTotal;
+  var over = purTotal > (proj.cost||0) && (proj.cost||0)>0;
+  var pct = proj.cost>0 ? Math.min((purTotal/proj.cost*100),100).toFixed(1) : 0;
+  var st = STATUS[proj.status] || STATUS.pending;
+
+  function tRow(cols, bg) {
+    return '<tr style="background:'+(bg||'#fff')+'">' + cols.map(function(c,i){
+      return '<td style="padding:7px 10px;border:1px solid #e0e0e0;'+(i===0?'text-align:right':'text-align:center')+';font-family:Cairo,Arial;font-size:11px">'+c+'</td>';
+    }).join('') + '</tr>';
+  }
+  function thRow(cols) {
+    return '<tr>' + cols.map(function(c){
+      return '<th style="padding:7px 10px;border:1px solid #ccc;background:#1a1a2e;color:#f0c040;font-family:Cairo,Arial;font-size:11px;text-align:center">'+c+'</th>';
+    }).join('') + '</tr>';
+  }
+  function secTitle(text) {
+    return '<div style="background:#1a1a2e;color:#f0c040;font-family:Cairo,Arial;font-size:13px;font-weight:bold;padding:8px 12px;margin:14px 0 6px;border-radius:5px">'+text+'</div>';
+  }
+
+  var html = '<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="UTF-8">';
+  html += '<title>تقرير: '+escH(proj.name)+'</title>';
+  html += '<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">';
+  html += '<style>body{font-family:Cairo,Arial,sans-serif;background:#fff;color:#111;margin:0;padding:20px;direction:rtl}';
+  html += 'table{width:100%;border-collapse:collapse;margin-bottom:12px}';
+  html += '.page-break{page-break-before:always}';
+  html += '@media print{body{padding:10px}.no-print{display:none}}</style></head><body>';
+
+  // Header
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:14px;border-bottom:3px solid #c8920a;margin-bottom:16px">';
+  html += '<div><img src="'+logo+'" style="max-height:60px;max-width:180px;object-fit:contain"></div>';
+  html += '<div style="text-align:left"><div style="font-size:11px;color:#666">'+escH(settings.company||'دقة وصلابة')+'</div>';
+  html += '<div style="font-size:11px;color:#666">'+(settings.phone||'')+' '+(settings.addr||'')+'</div>';
+  html += '<div style="font-size:11px;color:#666">التاريخ: '+new Date().toLocaleDateString('ar-SA')+'</div></div></div>';
+
+  // Title
+  html += '<div style="text-align:center;margin-bottom:16px">';
+  html += '<div style="font-size:20px;font-weight:900;color:#1a1a2e">تقرير تفصيلي — '+escH(proj.name)+'</div>';
+  html += '<div style="font-size:12px;color:#666;margin-top:4px">الحالة: '+st.icon+' '+st.label+' | '+fmtDate(proj.createdTs)+' | بواسطة: '+escH(proj.createdBy)+'</div></div>';
+
+  // Summary boxes
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:16px">';
+  html += '<div style="background:#f8f8f8;border:1px solid #ddd;border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#666">الميزانية المخططة</div><div style="font-size:16px;font-weight:900;color:#1a1a2e">'+fmt(proj.cost||0)+' ﷼</div></div>';
+  html += '<div style="background:#fff8e1;border:1px solid #f0c040;border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#666">السعر للعميل</div><div style="font-size:16px;font-weight:900;color:#c8920a">'+fmt(proj.finalPrice||0)+' ﷼</div></div>';
+  html += '<div style="background:'+(over?'#fff0f0':'#f0fff0')+';border:1px solid '+(over?'#f43f5e':'#22c55e')+';border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#666">المصروف الفعلي</div><div style="font-size:16px;font-weight:900;color:'+(over?'#c00':'#166534')+'">'+fmt(purTotal)+' ﷼</div></div>';
+  html += '<div style="background:'+(over?'#fff0f0':'#f0fff0')+';border:1px solid '+(over?'#f43f5e':'#22c55e')+';border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#666">'+(over?'⚠️ تجاوز':'المتبقي')+'</div><div style="font-size:16px;font-weight:900;color:'+(over?'#c00':'#166534')+'">'+fmt(Math.abs(remaining))+' ﷼</div></div>';
+  html += '</div>';
+
+  // Budget bar
+  html += '<div style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:4px"><span>تقدم الإنفاق</span><span>'+pct+'%</span></div>';
+  html += '<div style="height:10px;background:#eee;border-radius:10px;overflow:hidden">';
+  html += '<div style="height:100%;width:'+pct+'%;background:'+(over?'#f43f5e':parseFloat(pct)>80?'#f59e0b':'#22c55e')+';border-radius:10px"></div></div></div>';
+
+  // === SECTION 1: Budget detail ===
+  if((proj.matRows&&proj.matRows.filter(function(r){return r.n;}).length) ||
+     (proj.labRows&&proj.labRows.filter(function(r){return r.n;}).length) ||
+     (proj.equRows&&proj.equRows.filter(function(r){return r.n;}).length)) {
+
+    html += secTitle('📋 تفصيل الميزانية المخططة');
+
+    if(proj.matRows && proj.matRows.filter(function(r){return r.n;}).length) {
+      html += '<div style="font-weight:bold;font-size:12px;margin-bottom:4px;color:#1a1a2e">🔩 المواد الخام</div>';
+      html += '<table>'+thRow(['المادة','الكمية','السعر/وحدة ﷼','الإجمالي ﷼']);
+      var matTotal = 0;
+      proj.matRows.forEach(function(r,i){ if(r.n){ var t=(+r.q)*(+r.p); matTotal+=t; html+=tRow([escH(r.n),r.q,fmt(r.p),fmt(t)],i%2?'#f9f9f9':'#fff'); } });
+      html += tRow(['<strong>الإجمالي</strong>','','','<strong>'+fmt(matTotal)+' ﷼</strong>'],'#fff8e1');
+      html += '</table>';
+    }
+
+    if(proj.labRows && proj.labRows.filter(function(r){return r.n;}).length) {
+      html += '<div style="font-weight:bold;font-size:12px;margin-bottom:4px;color:#1a1a2e">👷 تكاليف العمالة</div>';
+      html += '<table>'+thRow(['التخصص','الأيام','اليومية ﷼','الإجمالي ﷼']);
+      var labTotal = 0;
+      proj.labRows.forEach(function(r,i){ if(r.n){ var t=(+r.q)*(+r.p); labTotal+=t; html+=tRow([escH(r.n),r.q,fmt(r.p),fmt(t)],i%2?'#f9f9f9':'#fff'); } });
+      html += tRow(['<strong>الإجمالي</strong>','','','<strong>'+fmt(labTotal)+' ﷼</strong>'],'#fff8e1');
+      html += '</table>';
+    }
+
+    if(proj.equRows && proj.equRows.filter(function(r){return r.n;}).length) {
+      html += '<div style="font-weight:bold;font-size:12px;margin-bottom:4px;color:#1a1a2e">🔧 المعدات والأدوات</div>';
+      html += '<table>'+thRow(['البند','الكمية','السعر ﷼','الإجمالي ﷼']);
+      var equTotal = 0;
+      proj.equRows.forEach(function(r,i){ if(r.n){ var t=(+r.q)*(+r.p); equTotal+=t; html+=tRow([escH(r.n),r.q,fmt(r.p),fmt(t)],i%2?'#f9f9f9':'#fff'); } });
+      html += tRow(['<strong>الإجمالي</strong>','','','<strong>'+fmt(equTotal)+' ﷼</strong>'],'#fff8e1');
+      html += '</table>';
+    }
+
+    if(proj.ext > 0) {
+      html += '<div style="font-weight:bold;font-size:12px;margin-bottom:4px;color:#1a1a2e">📦 المصاريف الثابتة</div>';
+      html += '<table>'+thRow(['البند','','','المبلغ ﷼']);
+      if(proj.ship) html += tRow(['شحن ونقل','','',fmt(proj.ship)]);
+      if(proj.rent) html += tRow(['إيجار ورشة','','',fmt(proj.rent)],'#f9f9f9');
+      if(proj.util) html += tRow(['كهرباء وماء','','',fmt(proj.util)]);
+      if(proj.misc) html += tRow(['مصاريف أخرى','','',fmt(proj.misc)],'#f9f9f9');
+      html += tRow(['<strong>الإجمالي</strong>','','','<strong>'+fmt(proj.ext)+' ﷼</strong>'],'#fff8e1');
+      html += '</table>';
+    }
+  }
+
+  // === SECTION 2: Purchases ===
+  if(purs.length > 0) {
+    html += secTitle('🛒 قيود المشتريات الفعلية ('+purs.length+' قيد)');
+    purs.sort(function(a,b){ return (b.createdTs||0)-(a.createdTs||0); }).forEach(function(pur, pi) {
+      html += '<div style="border:1px solid #ddd;border-radius:8px;padding:12px;margin-bottom:10px;background:'+(pi%2?'#fafafa':'#fff')+'">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+      html += '<div><strong style="font-size:13px">'+escH(pur.vendor)+(pur.ref?' — #'+escH(pur.ref):'')+'</strong>';
+      html += '<div style="font-size:11px;color:#666">📅 '+pur.date+' | 👤 '+escH(pur.createdBy)+(pur.note?' | 📝 '+escH(pur.note):'')+'</div></div>';
+      html += '<div style="font-size:16px;font-weight:900;color:#c8920a">'+fmt(pur.total)+' ﷼</div></div>';
+      // Items table
+      html += '<table>'+thRow(['البند','الكمية','السعر/وحدة ﷼','الإجمالي ﷼']);
+      pur.items.forEach(function(item,ii){
+        html += tRow([escH(item.n),item.q,fmt(item.p),fmt((+item.q)*(+item.p))],ii%2?'#f9f9f9':'#fff');
+      });
+      html += tRow(['<strong>إجمالي هذا القيد</strong>','','','<strong>'+fmt(pur.total)+' ﷼</strong>'],'#fff8e1');
+      html += '</table>';
+      // Invoice image
+      if(pur.img) {
+        html += '<div style="margin-top:8px"><div style="font-size:11px;color:#666;margin-bottom:4px">📷 صورة الفاتورة:</div>';
+        html += '<img src="'+pur.img+'" style="max-width:300px;max-height:200px;object-fit:contain;border:1px solid #ddd;border-radius:5px"></div>';
+      }
+      html += '</div>';
+    });
+    // Purchases total
+    html += '<div style="background:#fff8e1;border:2px solid #c8920a;border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">';
+    html += '<strong style="font-size:13px">إجمالي جميع المشتريات الفعلية</strong>';
+    html += '<span style="font-size:18px;font-weight:900;color:#c8920a">'+fmt(purTotal)+' ﷼</span></div>';
+  }
+
+  // === SECTION 3: Summary ===
+  html += secTitle('📊 الملخص المالي النهائي');
+  html += '<table>'+thRow(['البند','المبلغ ﷼']);
+  html += tRow(['الميزانية المخططة الإجمالية',fmt(proj.cost||0)]);
+  html += tRow(['المصروف الفعلي (المشتريات)',fmt(purTotal)],'#f9f9f9');
+  html += tRow([(over?'⚠️ تجاوز الميزانية بـ':'الوفر في الميزانية'),fmt(Math.abs(remaining))],over?'#fff0f0':'#f0fff0');
+  html += tRow(['هامش الربح المخطط',(proj.profit||0)+'%']);
+  html += tRow(['الربح المخطط',fmt((proj.cost||0)*(proj.profit||0)/100)],'#f9f9f9');
+  html += tRow(['<strong>السعر النهائي للعميل</strong>','<strong>'+fmt(proj.finalPrice||0)+' ﷼</strong>'],'#fff8e1');
+  html += '</table>';
+
+  // Footer
+  html += '<div style="text-align:center;padding-top:14px;border-top:2px solid #c8920a;margin-top:16px;font-size:11px;color:#666">';
+  html += escH(settings.company||'دقة وصلابة للكرفانات والصناعات الهيكلية');
+  html += (settings.phone?' | '+settings.phone:'')+(settings.addr?' | '+settings.addr:'');
+  html += '</div>';
+
+  // Print buttons
+  html += '<div class="no-print" style="text-align:center;margin-top:20px;display:flex;gap:10px;justify-content:center">';
+  html += '<button onclick="window.print()" style="background:#c8920a;color:#000;border:none;padding:12px 24px;border-radius:10px;font-family:Cairo,Arial;font-size:14px;font-weight:900;cursor:pointer">🖨️ طباعة / حفظ PDF</button>';
+  html += '<button onclick="window.close()" style="background:#333;color:#fff;border:none;padding:12px 24px;border-radius:10px;font-family:Cairo,Arial;font-size:14px;font-weight:900;cursor:pointer">✕ إغلاق</button>';
+  html += '</div>';
+
+  html += '</body></html>';
+  return html;
+}
+
+function buildAllProjectsReportHTML(all, settings, totalRev, totalPurch) {
+  var logo = settings.logo || 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0MDAgMjAwIiB3aWR0aD0iNDAwIiBoZWlnaHQ9IjIwMCI+CiAgPGRlZnM+CiAgICA8IS0tIFN0ZWVsIGdyYWRpZW50IGJhY2tncm91bmQgLS0+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9InN0ZWVsQmciIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjEwMCUiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdHlsZT0ic3RvcC1jb2xvcjojMWExYTFhIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iNTAlIiBzdHlsZT0ic3RvcC1jb2xvcjojMGQwZDBkIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3R5bGU9InN0b3AtY29sb3I6IzFhMWExYSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDwhLS0gR29sZCBhY2NlbnQgZ3JhZGllbnQgLS0+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImdvbGRHcmFkIiB4MT0iMCUiIHkxPSIwJSIgeDI9IjEwMCUiIHkyPSIwJSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0eWxlPSJzdG9wLWNvbG9yOiNiODg2MGIiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI1MCUiIHN0eWxlPSJzdG9wLWNvbG9yOiNmMGMwNDAiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdHlsZT0ic3RvcC1jb2xvcjojYjg4NjBiIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPCEtLSBTdGVlbCBzaGluZSBmb3IgaWNvbiAtLT4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ic3RlZWxTaGluZSIgeDE9IjAlIiB5MT0iMCUiIHgyPSIxMDAlIiB5Mj0iMTAwJSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0eWxlPSJzdG9wLWNvbG9yOiNjMGMwYzAiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI0MCUiIHN0eWxlPSJzdG9wLWNvbG9yOiNlOGU4ZTgiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdHlsZT0ic3RvcC1jb2xvcjojODg4Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPCEtLSBTcGFyayBnbG93IC0tPgogICAgPGZpbHRlciBpZD0iZ2xvdyI+CiAgICAgIDxmZUdhdXNzaWFuQmx1ciBzdGREZXZpYXRpb249IjIiIHJlc3VsdD0iYmx1ciIvPgogICAgICA8ZmVNZXJnZT48ZmVNZXJnZU5vZGUgaW49ImJsdXIiLz48ZmVNZXJnZU5vZGUgaW49IlNvdXJjZUdyYXBoaWMiLz48L2ZlTWVyZ2U+CiAgICA8L2ZpbHRlcj4KICAgIDxmaWx0ZXIgaWQ9InNwYXJrR2xvdyI+CiAgICAgIDxmZUdhdXNzaWFuQmx1ciBzdGREZXZpYXRpb249IjEuNSIgcmVzdWx0PSJibHVyIi8+CiAgICAgIDxmZU1lcmdlPjxmZU1lcmdlTm9kZSBpbj0iYmx1ciIvPjxmZU1lcmdlTm9kZSBpbj0iU291cmNlR3JhcGhpYyIvPjwvZmVNZXJnZT4KICAgIDwvZmlsdGVyPgogIDwvZGVmcz4KCiAgPCEtLSBPdXRlciBnZW9tZXRyaWMgZnJhbWUgLSBoZXhhZ29uYWwgaW5kdXN0cmlhbCBib3JkZXIgLS0+CiAgPHJlY3QgeD0iMiIgeT0iMiIgd2lkdGg9IjM5NiIgaGVpZ2h0PSIxOTYiIHJ4PSI4IiByeT0iOCIgZmlsbD0idXJsKCNzdGVlbEJnKSIgc3Ryb2tlPSJ1cmwoI2dvbGRHcmFkKSIgc3Ryb2tlLXdpZHRoPSIyLjUiLz4KCiAgPCEtLSBDb3JuZXIgbWFya3MgLSBpbmR1c3RyaWFsIGZlZWwgLS0+CiAgPGxpbmUgeDE9IjIiIHkxPSIzMCIgeDI9IjIiIHkyPSIyIiBzdHJva2U9IiNmMGMwNDAiIHN0cm9rZS13aWR0aD0iMi41Ii8+CiAgPGxpbmUgeDE9IjIiIHkxPSIyIiB4Mj0iMzAiIHkyPSIyIiBzdHJva2U9IiNmMGMwNDAiIHN0cm9rZS13aWR0aD0iMi41Ii8+CiAgPGxpbmUgeDE9IjM5OCIgeTE9IjMwIiB4Mj0iMzk4IiB5Mj0iMiIgc3Ryb2tlPSIjZjBjMDQwIiBzdHJva2Utd2lkdGg9IjIuNSIvPgogIDxsaW5lIHgxPSIzOTgiIHkxPSIyIiB4Mj0iMzcwIiB5Mj0iMiIgc3Ryb2tlPSIjZjBjMDQwIiBzdHJva2Utd2lkdGg9IjIuNSIvPgogIDxsaW5lIHgxPSIyIiB5MT0iMTcwIiB4Mj0iMiIgeTI9IjE5OCIgc3Ryb2tlPSIjZjBjMDQwIiBzdHJva2Utd2lkdGg9IjIuNSIvPgogIDxsaW5lIHgxPSIyIiB5MT0iMTk4IiB4Mj0iMzAiIHkyPSIxOTgiIHN0cm9rZT0iI2YwYzA0MCIgc3Ryb2tlLXdpZHRoPSIyLjUiLz4KICA8bGluZSB4MT0iMzk4IiB5MT0iMTcwIiB4Mj0iMzk4IiB5Mj0iMTk4IiBzdHJva2U9IiNmMGMwNDAiIHN0cm9rZS13aWR0aD0iMi41Ii8+CiAgPGxpbmUgeDE9IjM5OCIgeTE9IjE5OCIgeDI9IjM3MCIgeTI9IjE5OCIgc3Ryb2tlPSIjZjBjMDQwIiBzdHJva2Utd2lkdGg9IjIuNSIvPgoKICA8IS0tIFN1YnRsZSBzdGVlbCBwbGF0ZSB0ZXh0dXJlIGxpbmVzIC0tPgogIDxsaW5lIHgxPSIyIiB5MT0iNjAiIHgyPSIzOTgiIHkyPSI2MCIgc3Ryb2tlPSIjMmEyYTJhIiBzdHJva2Utd2lkdGg9IjAuNSIvPgogIDxsaW5lIHgxPSIyIiB5MT0iMTQwIiB4Mj0iMzk4IiB5Mj0iMTQwIiBzdHJva2U9IiMyYTJhMmEiIHN0cm9rZS13aWR0aD0iMC41Ii8+CgogIDwhLS0g4pWQ4pWQ4pWQIExFRlQgSUNPTiBBUkVBIOKVkOKVkOKVkCAtLT4KICA8IS0tIENhcmF2YW4vdHJhaWxlciBzaWxob3VldHRlIChzaW1wbGUgZ2VvbWV0cmljKSAtLT4KICA8IS0tIENhcmF2YW4gYm9keSAtLT4KICA8cmVjdCB4PSIxOCIgeT0iOTUiIHdpZHRoPSI4OCIgaGVpZ2h0PSI1MiIgcng9IjYiIGZpbGw9Im5vbmUiIHN0cm9rZT0idXJsKCNzdGVlbFNoaW5lKSIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPCEtLSBSb29mIGN1cnZlIC0tPgogIDxwYXRoIGQ9Ik0xOCAxMDEgUTYyIDc4IDEwNiAxMDEiIGZpbGw9Im5vbmUiIHN0cm9rZT0idXJsKCNzdGVlbFNoaW5lKSIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPCEtLSBXaW5kb3cgMSAtLT4KICA8cmVjdCB4PSIyOCIgeT0iMTAyIiB3aWR0aD0iMTgiIGhlaWdodD0iMTQiIHJ4PSIyIiBmaWxsPSJub25lIiBzdHJva2U9IiNmMGMwNDAiIHN0cm9rZS13aWR0aD0iMS41Ii8+CiAgPCEtLSBXaW5kb3cgMiAtLT4KICA8cmVjdCB4PSI1MiIgeT0iMTAyIiB3aWR0aD0iMTgiIGhlaWdodD0iMTQiIHJ4PSIyIiBmaWxsPSJub25lIiBzdHJva2U9IiNmMGMwNDAiIHN0cm9rZS13aWR0aD0iMS41Ii8+CiAgPCEtLSBEb29yIC0tPgogIDxyZWN0IHg9IjgwIiB5PSIxMDgiIHdpZHRoPSIxNiIgaGVpZ2h0PSIyOCIgcng9IjIiIGZpbGw9Im5vbmUiIHN0cm9rZT0idXJsKCNzdGVlbFNoaW5lKSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4KICA8IS0tIEhpdGNoIC0tPgogIDxsaW5lIHgxPSIxMDYiIHkxPSIxNDAiIHgyPSIxMTgiIHkyPSIxNDAiIHN0cm9rZT0idXJsKCNzdGVlbFNoaW5lKSIgc3Ryb2tlLXdpZHRoPSIyLjUiLz4KICA8IS0tIFdoZWVscyAtLT4KICA8Y2lyY2xlIGN4PSIzOCIgY3k9IjE1MCIgcj0iOSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJ1cmwoI3N0ZWVsU2hpbmUpIiBzdHJva2Utd2lkdGg9IjIiLz4KICA8Y2lyY2xlIGN4PSIzOCIgY3k9IjE1MCIgcj0iNCIgZmlsbD0iI2YwYzA0MCIvPgogIDxjaXJjbGUgY3g9IjgyIiBjeT0iMTUwIiByPSI5IiBmaWxsPSJub25lIiBzdHJva2U9InVybCgjc3RlZWxTaGluZSkiIHN0cm9rZS13aWR0aD0iMiIvPgogIDxjaXJjbGUgY3g9IjgyIiBjeT0iMTUwIiByPSI0IiBmaWxsPSIjZjBjMDQwIi8+CiAgPCEtLSBHcm91bmQgbGluZSAtLT4KICA8bGluZSB4MT0iMTgiIHkxPSIxNTkiIHgyPSIxMTgiIHkyPSIxNTkiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIxIi8+CgogIDwhLS0gV2VsZGVyIGZpZ3VyZSAocmlnaHQgb2YgY2FyYXZhbikgLSBzdHlsaXplZCAtLT4KICA8IS0tIEJvZHkgLS0+CiAgPGxpbmUgeDE9IjEzMCIgeTE9IjEwOCIgeDI9IjEzMCIgeTI9IjE0MCIgc3Ryb2tlPSJ1cmwoI3N0ZWVsU2hpbmUpIiBzdHJva2Utd2lkdGg9IjMiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDwhLS0gSGVsbWV0L0hlYWQgLS0+CiAgPHJlY3QgeD0iMTIyIiB5PSI5NiIgd2lkdGg9IjE2IiBoZWlnaHQ9IjEzIiByeD0iMyIgZmlsbD0idXJsKCNzdGVlbFNoaW5lKSIvPgogIDxyZWN0IHg9IjEyNCIgeT0iMTAxIiB3aWR0aD0iMTAiIGhlaWdodD0iNSIgcng9IjEiIGZpbGw9IiMxYTFhMWEiLz4KICA8IS0tIEFybXMgLS0+CiAgPGxpbmUgeDE9IjEzMCIgeTE9IjExNSIgeDI9IjExOCIgeTI9IjEyNSIgc3Ryb2tlPSJ1cmwoI3N0ZWVsU2hpbmUpIiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGxpbmUgeDE9IjEzMCIgeTE9IjExNSIgeDI9IjE0MiIgeTI9IjEyMiIgc3Ryb2tlPSJ1cmwoI3N0ZWVsU2hpbmUpIiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPCEtLSBXZWxkaW5nIHRvcmNoIC0tPgogIDxsaW5lIHgxPSIxMTgiIHkxPSIxMjUiIHgyPSIxMTIiIHkyPSIxMzIiIHN0cm9rZT0idXJsKCNzdGVlbFNoaW5lKSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8IS0tIExlZ3MgLS0+CiAgPGxpbmUgeDE9IjEzMCIgeTE9IjE0MCIgeDI9IjEyMiIgeTI9IjE1OCIgc3Ryb2tlPSJ1cmwoI3N0ZWVsU2hpbmUpIiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGxpbmUgeDE9IjEzMCIgeTE9IjE0MCIgeDI9IjEzOCIgeTI9IjE1OCIgc3Ryb2tlPSJ1cmwoI3N0ZWVsU2hpbmUpIiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CgogIDwhLS0gV2VsZGluZyBzcGFya3MgLS0+CiAgPGcgZmlsdGVyPSJ1cmwoI3NwYXJrR2xvdykiPgogICAgPGNpcmNsZSBjeD0iMTA5IiBjeT0iMTM1IiByPSIxLjUiIGZpbGw9IiNmMGMwNDAiLz4KICAgIDxsaW5lIHgxPSIxMDkiIHkxPSIxMzUiIHgyPSIxMDMiIHkyPSIxMjkiIHN0cm9rZT0iI2YwYzA0MCIgc3Ryb2tlLXdpZHRoPSIxIiBvcGFjaXR5PSIwLjkiLz4KICAgIDxsaW5lIHgxPSIxMDkiIHkxPSIxMzUiIHgyPSIxMTUiIHkyPSIxMjgiIHN0cm9rZT0iI2ZmOGMwMCIgc3Ryb2tlLXdpZHRoPSIwLjgiIG9wYWNpdHk9IjAuOCIvPgogICAgPGxpbmUgeDE9IjEwOSIgeTE9IjEzNSIgeDI9IjEwNSIgeTI9IjE0MiIgc3Ryb2tlPSIjZjBjMDQwIiBzdHJva2Utd2lkdGg9IjAuOCIgb3BhY2l0eT0iMC43Ii8+CiAgICA8bGluZSB4MT0iMTA5IiB5MT0iMTM1IiB4Mj0iMTE2IiB5Mj0iMTM4IiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMC42IiBvcGFjaXR5PSIwLjkiLz4KICAgIDxjaXJjbGUgY3g9IjEwMiIgY3k9IjEyOCIgcj0iMSIgZmlsbD0iI2ZmOGMwMCIgb3BhY2l0eT0iMC44Ii8+CiAgICA8Y2lyY2xlIGN4PSIxMTYiIGN5PSIxMjciIHI9IjAuOCIgZmlsbD0iI2ZmZiIgb3BhY2l0eT0iMC45Ii8+CiAgICA8Y2lyY2xlIGN4PSIxMDQiIGN5PSIxNDMiIHI9IjAuNyIgZmlsbD0iI2YwYzA0MCIgb3BhY2l0eT0iMC43Ii8+CiAgPC9nPgoKICA8IS0tIFZlcnRpY2FsIGRpdmlkZXIgLS0+CiAgPGxpbmUgeDE9IjE1OCIgeTE9IjIwIiB4Mj0iMTU4IiB5Mj0iMTgwIiBzdHJva2U9IiMzMzMiIHN0cm9rZS13aWR0aD0iMSIvPgogIDxsaW5lIHgxPSIxNTkiIHkxPSIyMCIgeDI9IjE1OSIgeTI9IjE4MCIgc3Ryb2tlPSIjMmEyYTJhIiBzdHJva2Utd2lkdGg9IjAuNSIvPgoKICA8IS0tIOKVkOKVkOKVkCBSSUdIVCBURVhUIEFSRUEg4pWQ4pWQ4pWQIC0tPgogIDwhLS0gQXJhYmljIGJyYW5kIG5hbWUgLSBERUtLQSAtLT4KICA8dGV4dCB4PSIyNzgiIHk9Ijc1IiAKICAgIGZvbnQtZmFtaWx5PSInQXJpYWwgQmxhY2snLCAnSW1wYWN0Jywgc2Fucy1zZXJpZiIgCiAgICBmb250LXNpemU9IjUyIiAKICAgIGZvbnQtd2VpZ2h0PSI5MDAiCiAgICBmaWxsPSJ1cmwoI2dvbGRHcmFkKSIKICAgIHRleHQtYW5jaG9yPSJtaWRkbGUiCiAgICBsZXR0ZXItc3BhY2luZz0iNCIKICAgIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiPkRFS0tBPC90ZXh0PgoKICA8IS0tIERlY29yYXRpdmUgbGluZSB1bmRlciBERUtLQSAtLT4KICA8bGluZSB4MT0iMTc4IiB5MT0iOTUiIHgyPSIzNzgiIHkyPSI5NSIgc3Ryb2tlPSJ1cmwoI2dvbGRHcmFkKSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4KICA8bGluZSB4MT0iMjAwIiB5MT0iOTgiIHgyPSIzNTYiIHkyPSI5OCIgc3Ryb2tlPSIjMzMzIiBzdHJva2Utd2lkdGg9IjAuNSIvPgoKICA8IS0tIEFtcGVyc2FuZCAtLT4KICA8dGV4dCB4PSIyNzgiIHk9IjExOCIKICAgIGZvbnQtZmFtaWx5PSInQXJpYWwgQmxhY2snLCBzYW5zLXNlcmlmIgogICAgZm9udC1zaXplPSIxMyIKICAgIGZpbGw9IiM4ODgiCiAgICB0ZXh0LWFuY2hvcj0ibWlkZGxlIgogICAgbGV0dGVyLXNwYWNpbmc9IjgiPuKcpiAgJmFtcDsgIOKcpjwvdGV4dD4KCiAgPCEtLSBTQUxBQkFIIC0tPgogIDx0ZXh0IHg9IjI3OCIgeT0iMTQ4IgogICAgZm9udC1mYW1pbHk9IidBcmlhbCBCbGFjaycsICdJbXBhY3QnLCBzYW5zLXNlcmlmIgogICAgZm9udC1zaXplPSIzOCIKICAgIGZvbnQtd2VpZ2h0PSI5MDAiCiAgICBmaWxsPSJ1cmwoI3N0ZWVsU2hpbmUpIgogICAgdGV4dC1hbmNob3I9Im1pZGRsZSIKICAgIGxldHRlci1zcGFjaW5nPSIzIgogICAgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSI+U0FMQUJBSDwvdGV4dD4KCiAgPCEtLSBUYWdsaW5lIC0tPgogIDxsaW5lIHgxPSIxNzgiIHkxPSIxNjIiIHgyPSIzNzgiIHkyPSIxNjIiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIxIi8+CiAgPHRleHQgeD0iMjc4IiB5PSIxNzUiCiAgICBmb250LWZhbWlseT0iJ0FyaWFsJywgc2Fucy1zZXJpZiIKICAgIGZvbnQtc2l6ZT0iMTAiCiAgICBmaWxsPSIjNjY2IgogICAgdGV4dC1hbmNob3I9Im1pZGRsZSIKICAgIGxldHRlci1zcGFjaW5nPSIzIgogICAgZm9udC13ZWlnaHQ9IjYwMCI+Q0FSQVZBTlMgIMK3ICBTVEVFTCAgU1RSVUNUVVJFUzwvdGV4dD4KCiAgPCEtLSBUb3AgbGFiZWwgQVIgLS0+CiAgPHRleHQgeD0iMjc4IiB5PSIzNSIKICAgIGZvbnQtZmFtaWx5PSInQXJpYWwnLCBzYW5zLXNlcmlmIgogICAgZm9udC1zaXplPSIxMSIKICAgIGZpbGw9IiM1NTUiCiAgICB0ZXh0LWFuY2hvcj0ibWlkZGxlIgogICAgbGV0dGVyLXNwYWNpbmc9IjIiPtiv2YLYqSAgwrcgINi12YTYp9io2KkgIMK3ICDYp9it2KrYsdin2YE8L3RleHQ+CiAgPGxpbmUgeDE9IjE3OCIgeTE9IjQ0IiB4Mj0iMzc4IiB5Mj0iNDQiIHN0cm9rZT0iIzIyMiIgc3Ryb2tlLXdpZHRoPSIwLjgiLz4KCjwvc3ZnPg==';
+  var html = '<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="UTF-8">';
+  html += '<title>تقرير شامل — جميع المشاريع</title>';
+  html += '<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">';
+  html += '<style>body{font-family:Cairo,Arial,sans-serif;background:#fff;color:#111;margin:0;padding:20px;direction:rtl}table{width:100%;border-collapse:collapse;margin-bottom:12px}@media print{.no-print{display:none}}</style></head><body>';
+
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:14px;border-bottom:3px solid #c8920a;margin-bottom:16px">';
+  html += '<div><img src="'+logo+'" style="max-height:60px;max-width:180px;object-fit:contain"></div>';
+  html += '<div style="text-align:left"><div style="font-size:18px;font-weight:900;color:#1a1a2e">تقرير شامل — جميع المشاريع</div>';
+  html += '<div style="font-size:11px;color:#666">التاريخ: '+new Date().toLocaleDateString('ar-SA')+'</div></div></div>';
+
+  // Summary
+  var totalCost = all.reduce(function(s,p){ return s+(p.cost||0); },0);
+  var totalFinal = all.reduce(function(s,p){ return s+(p.finalPrice||0); },0);
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:16px">';
+  html += '<div style="background:#f8f8f8;border:1px solid #ddd;border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#666">إجمالي المشاريع</div><div style="font-size:20px;font-weight:900;color:#1a1a2e">'+all.length+'</div></div>';
+  html += '<div style="background:#fff8e1;border:1px solid #f0c040;border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#666">إجمالي الإيرادات ﷼</div><div style="font-size:16px;font-weight:900;color:#c8920a">'+fmt(totalRev)+'</div></div>';
+  html += '<div style="background:#f0fff0;border:1px solid #22c55e;border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#666">إجمالي المشتريات ﷼</div><div style="font-size:16px;font-weight:900;color:#166534">'+fmt(totalPurch)+'</div></div>';
+  html += '<div style="background:#f0fff0;border:1px solid #22c55e;border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#666">صافي الربح ﷼</div><div style="font-size:16px;font-weight:900;color:#166534">'+fmt(totalRev-(all.filter(function(p){return p.status==='delivered';}).reduce(function(s,p){return s+(p.cost||0);},0)))+'</div></div>';
+  html += '</div>';
+
+  // Projects table
+  html += '<div style="font-weight:bold;font-size:14px;margin-bottom:8px;color:#1a1a2e;border-bottom:2px solid #c8920a;padding-bottom:6px">تفصيل جميع المشاريع</div>';
+  html += '<table><tr>';
+  ['#','المشروع','الحالة','الميزانية ﷼','السعر النهائي ﷼','المصروف ﷼','الفرق ﷼','هامش الربح'].forEach(function(h){
+    html += '<th style="padding:8px;border:1px solid #ccc;background:#1a1a2e;color:#f0c040;font-size:11px;text-align:center">'+h+'</th>';
+  });
+  html += '</tr>';
+  all.forEach(function(p,i){
+    var pPurs = ALL_PURCHASES.filter(function(pur){ return pur.projId===p.id; }).reduce(function(s,pur){ return s+pur.total; },0);
+    var diff = (p.cost||0) - pPurs;
+    var over = pPurs > (p.cost||0) && (p.cost||0)>0;
+    var st = STATUS[p.status] ? STATUS[p.status].label : p.status;
+    html += '<tr style="background:'+(i%2?'#f9f9f9':'#fff')+'">';
+    html += '<td style="padding:7px;border:1px solid #e0e0e0;text-align:center;font-size:11px">'+(i+1)+'</td>';
+    html += '<td style="padding:7px;border:1px solid #e0e0e0;font-size:11px">'+escH(p.name)+'<div style="font-size:10px;color:#666">'+fmtDate(p.createdTs)+'</div></td>';
+    html += '<td style="padding:7px;border:1px solid #e0e0e0;text-align:center;font-size:11px">'+st+'</td>';
+    html += '<td style="padding:7px;border:1px solid #e0e0e0;text-align:center;font-size:11px">'+fmt(p.cost||0)+'</td>';
+    html += '<td style="padding:7px;border:1px solid #e0e0e0;text-align:center;font-size:11px;color:#c8920a;font-weight:bold">'+fmt(p.finalPrice||0)+'</td>';
+    html += '<td style="padding:7px;border:1px solid #e0e0e0;text-align:center;font-size:11px;color:'+(over?'#c00':'#166534')+'">'+fmt(pPurs)+(over?' ⚠️':'')+'</td>';
+    html += '<td style="padding:7px;border:1px solid #e0e0e0;text-align:center;font-size:11px;color:'+(over?'#c00':'#166534')+'">'+fmt(Math.abs(diff))+(over?' (تجاوز)':' (وفر)')+'</td>';
+    html += '<td style="padding:7px;border:1px solid #e0e0e0;text-align:center;font-size:11px">'+(p.profit||0)+'%</td>';
+    html += '</tr>';
+  });
+  // Totals row
+  var totPurch = ALL_PURCHASES.reduce(function(s,p){return s+p.total;},0);
+  html += '<tr style="background:#fff8e1;font-weight:bold">';
+  html += '<td style="padding:7px;border:1px solid #ddd;text-align:center" colspan="3">الإجمالي</td>';
+  html += '<td style="padding:7px;border:1px solid #ddd;text-align:center;font-size:12px">'+fmt(totalCost)+'</td>';
+  html += '<td style="padding:7px;border:1px solid #ddd;text-align:center;font-size:12px;color:#c8920a">'+fmt(totalFinal)+'</td>';
+  html += '<td style="padding:7px;border:1px solid #ddd;text-align:center;font-size:12px">'+fmt(totPurch)+'</td>';
+  html += '<td colspan="2" style="padding:7px;border:1px solid #ddd"></td></tr>';
+  html += '</table>';
+
+  // Purchases detail
+  if(ALL_PURCHASES.length > 0) {
+    html += '<div style="font-weight:bold;font-size:14px;margin:16px 0 8px;color:#1a1a2e;border-bottom:2px solid #c8920a;padding-bottom:6px">تفصيل جميع قيود المشتريات</div>';
+    html += '<table><tr>';
+    ['المشروع','المورد','التاريخ','البنود التفصيلية','الإجمالي ﷼'].forEach(function(h){
+      html += '<th style="padding:8px;border:1px solid #ccc;background:#1a1a2e;color:#f0c040;font-size:11px;text-align:center">'+h+'</th>';
+    });
+    html += '</tr>';
+    ALL_PURCHASES.sort(function(a,b){ return (b.createdTs||0)-(a.createdTs||0); }).forEach(function(pur,i){
+      html += '<tr style="background:'+(i%2?'#f9f9f9':'#fff')+'">';
+      html += '<td style="padding:7px;border:1px solid #e0e0e0;font-size:11px">'+escH(pur.projName)+'</td>';
+      html += '<td style="padding:7px;border:1px solid #e0e0e0;font-size:11px">'+escH(pur.vendor)+(pur.ref?' #'+escH(pur.ref):'')+'</td>';
+      html += '<td style="padding:7px;border:1px solid #e0e0e0;text-align:center;font-size:11px">'+pur.date+'</td>';
+      html += '<td style="padding:7px;border:1px solid #e0e0e0;font-size:11px">'+pur.items.map(function(item){ return escH(item.n)+' ('+item.q+' × '+fmt(item.p)+' ﷼ = '+fmt((+item.q)*(+item.p))+' ﷼)'; }).join('<br>')+'</td>';
+      html += '<td style="padding:7px;border:1px solid #e0e0e0;text-align:center;font-size:12px;font-weight:bold;color:#c8920a">'+fmt(pur.total)+'</td>';
+      html += '</tr>';
+    });
+    html += '</table>';
+  }
+
+  html += '<div class="no-print" style="text-align:center;margin-top:20px;display:flex;gap:10px;justify-content:center">';
+  html += '<button onclick="window.print()" style="background:#c8920a;color:#000;border:none;padding:12px 24px;border-radius:10px;font-family:Cairo,Arial;font-size:14px;font-weight:900;cursor:pointer">🖨️ طباعة / حفظ PDF</button>';
+  html += '<button onclick="window.close()" style="background:#333;color:#fff;border:none;padding:12px 24px;border-radius:10px;font-family:Cairo,Arial;font-size:14px;font-weight:900;cursor:pointer">✕ إغلاق</button>';
+  html += '</div></body></html>';
+  return html;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2662,6 +3053,8 @@ document.addEventListener('click', function(e) {
     else if(a==='openPurDetail') openPurDetail(purid);
     else if(a==='openDetailedReport') { closeM('m-proj'); openDetailedReport(pid); }
     else if(a==='openAllProjectsReport') openAllProjectsReport();
+    else if(a==='printProjectReport')  printProjectReport(pid);
+    else if(a==='exportProjectExcel')  exportProjectExcel(pid);
     else if(a==='deletePurchase') deletePurchase(purid);
     else if(a==='deleteUser')  deleteUser(uid2);
     else if(a==='openImg'&&src) window.open(src,'_blank');
